@@ -1,0 +1,4 @@
+cmapreduce
+==========
+
+mapreduce in C
