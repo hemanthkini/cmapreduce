@@ -31,12 +31,15 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
     int i;
     for (i=0; i < arrlen; i++)
     {
+
+        // THIS SEGMENT SHOULD BE THREADED
+
         // Get the pointer to the output and copy it over 
         // to new array
-        void* retnptr = mapfn(inputarr + fromsizeacc);
+        void* retnptr = mapfn((char*)inputarr + fromsizeacc);
         memcpy((char*)outputarr + tosizeacc, retnptr, tosize);
 
-        // We assume the memory allocated is temporary 
+        // We ask the user to give us allocated space that we own 
         free(retnptr);
         
         // Update accumulator sizes (For optimization)
