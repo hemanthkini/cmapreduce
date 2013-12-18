@@ -4,7 +4,8 @@
 
 
 // Typedef for general void* fun(void*) function
-typedef void* genfnptr(void*);
+typedef void* gen_fnptr(void*);
+typedef void fast_fnptr(void*,void*);
 
 /* Definition of map
  *
@@ -20,8 +21,8 @@ typedef void* genfnptr(void*);
  */
 
 
-#define map(size,type1,type2,inarr,outarr, fn) (map_fun(size, sizeof(type1), sizeof(type2),(void*)inarr,(void*) outarr, (genfnptr*)fn))
-void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  void* outputarr, genfnptr* mapfn)
+#define map(size,type1,type2,inarr,outarr, fn) (map_fun(size, sizeof(type1), sizeof(type2),(void*)inarr,(void*) outarr, (gen_fnptr*)fn))
+void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  void* outputarr, gen_fnptr* mapfn)
 {
 
     // Optimize acc in registers
@@ -41,6 +42,30 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
 
         // We ask the user to give us allocated space that we own 
         free(retnptr);
+        
+        // Update accumulator sizes (For optimization)
+        fromsizeacc += fromsize;
+        tosizeacc += tosize;
+    }
+}
+
+
+#define map_fast(size,type1,type2,inarr,outarr, fn) (map_fast_fun(size, sizeof(type1), sizeof(type2),(void*)inarr,(void*) outarr, (fast_fnptr*)fn))
+void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  void* outputarr, fast_fnptr* mapfn)
+{
+
+    // Optimize acc in registers
+    int tosizeacc=0;
+    int fromsizeacc=0;
+
+    int i;
+    for (i=0; i < arrlen; i++)
+    {
+
+        // THIS SEGMENT SHOULD BE THREADED
+
+        // We give the pointers to the location and let the user populate them
+        mapfn((char*)inputarr + fromsizeacc, (char*)outputarr + tosizeacc);
         
         // Update accumulator sizes (For optimization)
         fromsizeacc += fromsize;
@@ -87,6 +112,13 @@ struct tup* evaltup(int* a)
     retnval->origtimes2 = num*2;
 
     return retnval;
+}
+
+void evaltup_fast(int* a, struct tup* b)
+{
+    int num = *a;
+    b->orig = num;
+    b->origtimes2 = num * 2;
 }
 
 // Main function for testing
@@ -149,6 +181,25 @@ int main(int argc, char **argv)
         printf("(%d,%d) ", retnarr3[i].orig, retnarr3[i].origtimes2);
     }
     printf("END\n\n");
+
+
+
+    // Test 4
+    // Times 2 struct FAST MAP
+    //
+    struct tup retnarr4[10];
+
+    printf("Test 4: orig and orig*2 struct - MAP FAST\n");
+    map_fast(10,int,struct tup, intarr, retnarr4, &evaltup_fast);
+
+    i=0;
+    for (i=0;i<10;i++)
+    {
+        printf("(%d,%d) ", retnarr4[i].orig, retnarr4[i].origtimes2);
+    }
+    printf("END\n\n");
+
+
 
 
 
