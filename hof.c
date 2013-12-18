@@ -2,9 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define map(size,type1,type2,inarr, fn) (map_fun(size, sizeof(type1), sizeof(type2),(void*)inarr,(genfnptr*)fn))
+
 typedef void* genfnptr(void*);
 
-void* map(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  genfnptr* mapfn)
+void* map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  genfnptr* mapfn)
 {
     // Prepare output array
     void* outputarr = malloc(tosize * arrlen);
@@ -74,7 +76,7 @@ int main(int argc, char **argv)
 
     printf("Test 1: square\n");
     int intarr[10] = {0,1,2,3,4,5,6,7,8,9};
-    int *retnarr = (int*)map(10, sizeof(int),sizeof(int), intarr, (genfnptr*) &square);
+    int *retnarr = map(10,int,int,intarr,&square);
 
     int i=0;
     for (i=0;i<10;i++)
@@ -88,7 +90,7 @@ int main(int argc, char **argv)
     // Output 1/x
     //
     printf("Test 2: 1/x\n");
-    float *retnarr2 = (float*)map(10, sizeof(int),sizeof(float), intarr, (genfnptr*) &fraction);
+    float *retnarr2 = map(10,int,float,intarr,&fraction);
 
     i=0;
     for (i=0;i<10;i++)
@@ -101,7 +103,7 @@ int main(int argc, char **argv)
     // Times 2 struct
     //
     printf("Test 3: orig and orig*2 struct\n");
-    struct tup *retnarr3 = (struct tup*)map(10, sizeof(int),sizeof(struct tup), intarr, (genfnptr*) &evaltup);
+    struct tup *retnarr3 = map(10,int,struct tup, intarr, &evaltup);
 
     i=0;
     for (i=0;i<10;i++)
