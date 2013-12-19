@@ -18,7 +18,7 @@ typedef struct threadStruct {
     size_t tosize;
     void* inputarr;
     void* outputarr;
-    gen_fnptr* mapfn;
+    void* mapfn;
 } ts;
 
 /* Definition of map
@@ -53,6 +53,7 @@ void errorReportNum(char* string)
 }
 
 void* thread_map_fun(void* vargp);
+void* thread_map_fast_fun(void* vargp);
 
 #define map(size,type1,type2,inarr,outarr, fn) (map_fun(size, sizeof(type1), sizeof(type2),(void*)inarr,(void*) outarr, (gen_fnptr*)fn))
 void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  void* outputarr, gen_fnptr* mapfn)
@@ -82,7 +83,7 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
         threadStuff->tosize = tosize;
         threadStuff->inputarr = inputarr;
         threadStuff->outputarr = outputarr;
-        threadStuff->mapfn = mapfn;
+        threadStuff->mapfn = (void*)mapfn;
         threadStuff->threadLen = offset;
         threadStuff->startingOffsetIndex = offset * i;
 
@@ -101,7 +102,7 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
     threadStuff->tosize = tosize;
     threadStuff->inputarr = inputarr;
     threadStuff->outputarr = outputarr;
-    threadStuff->mapfn = mapfn;
+    threadStuff->mapfn = (void*)mapfn;
     threadStuff->threadLen = lastOffset;
     threadStuff->startingOffsetIndex = offset * i;
 
@@ -131,7 +132,7 @@ void* thread_map_fun(void* vargp)
 
     void* inputarr = threadStuff->inputarr;
     void* outputarr = threadStuff->outputarr;
-    gen_fnptr* mapfn = threadStuff->mapfn;
+    gen_fnptr* mapfn = (gen_fnptr*)threadStuff->mapfn;
 
     int i;
     for (i = 0; i < threadLen; i++)
@@ -165,19 +166,96 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
     int fromsizeacc=0;
 
     int i;
-    for (i=0; i < arrlen; i++)
+    int rc;
+
+    int offset = arrlen / NUMTHREADS;
+    /* lastOffset compensates for a remainder of jobs, if the jobs
+       aren't divided cleanly */
+
+    int lastOffset = arrlen - (offset * (NUMTHREADS - 1));
+    // Dispatch worker threads
+    pthread_t threads[NUMTHREADS];
+    ts* threadStuff;
+
+    for (i=0; i < NUMTHREADS - 1; i++)
+    {
+        threadStuff = malloc(sizeof(ts));
+        if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
+        threadStuff->fromsize = fromsize;
+        threadStuff->tosize = tosize;
+        threadStuff->inputarr = inputarr;
+        threadStuff->outputarr = outputarr;
+        threadStuff->mapfn = (void*) mapfn;
+        threadStuff->threadLen = offset;
+        threadStuff->startingOffsetIndex = offset * i;
+
+        rc = pthread_create(&threads[i],NULL, thread_map_fast_fun, (void *)threadStuff);
+        if (rc)
+        {
+            errno = rc;
+            errorReportNum("couldn't create a thread in Map");
+        }
+
+    }
+
+    threadStuff = malloc(sizeof(ts));
+    if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
+    threadStuff->fromsize = fromsize;
+    threadStuff->tosize = tosize;
+    threadStuff->inputarr = inputarr;
+    threadStuff->outputarr = outputarr;
+    threadStuff->mapfn = (void*) mapfn;
+    threadStuff->threadLen = lastOffset;
+    threadStuff->startingOffsetIndex = offset * i;
+
+    rc = pthread_create(&threads[i], NULL, thread_map_fast_fun, (void *)threadStuff);
+    if (rc)
+    {
+        errno = rc;
+        errorReportNum("couldn't create a thread in Map");
+    }
+
+    // Reap worker threads
+    for (i=0; i < NUMTHREADS; i++)
+    {
+        pthread_join(threads[i], (void**)&rc); // rc holds the return code for error checking later
+    }
+
+}
+
+void* thread_map_fast_fun(void* vargp)
+{
+    ts* threadStuff = (ts *)vargp;
+    int threadLen = threadStuff->threadLen;
+    int fromsize = threadStuff->fromsize;
+    int tosize = threadStuff->tosize;
+    int fromsizeacc = threadStuff->startingOffsetIndex * fromsize;
+    int tosizeacc = threadStuff->startingOffsetIndex * tosize;
+
+    void* inputarr = threadStuff->inputarr;
+    void* outputarr = threadStuff->outputarr;
+    fast_fnptr* mapfn = (fast_fnptr*)threadStuff->mapfn;
+
+    int i;
+    for (i = 0; i < threadLen; i++)
     {
 
-        // THIS SEGMENT SHOULD BE THREADED
-
-        // We give the pointers to the location and let the user populate them
+        // Get the pointer to the output and copy it over
+        // to new array
         mapfn((char*)inputarr + fromsizeacc, (char*)outputarr + tosizeacc);
 
         // Update accumulator sizes (For optimization)
         fromsizeacc += fromsize;
         tosizeacc += tosize;
     }
+
+    free(threadStuff);
+    return NULL;
 }
+
+
+
+
 
 
 
