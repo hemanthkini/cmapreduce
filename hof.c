@@ -1,11 +1,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <error.h>
+#include <errno.h>
 
 
 // Typedef for general void* fun(void*) function
 typedef void* gen_fnptr(void*);
 typedef void fast_fnptr(void*,void*);
+
+#define NUMTHREADS 3
+
+typedef struct threadStruct {
+    size_t threadLen;
+    size_t startingOffsetIndex;
+    size_t fromsize;
+    size_t tosize;
+    void* inputarr;
+    void* outputarr;
+    gen_fnptr* mapfn;
+} ts;
 
 /* Definition of map
  *
@@ -21,32 +35,124 @@ typedef void fast_fnptr(void*,void*);
  */
 
 
+/*
+  silly error-reporting function
+ */
+void errorReport(char* string)
+{
+    printf("ERROR: %s\n", string);
+    fflush(stdout);
+    exit(1);
+}
+
+void errorReportNum(char* string)
+{
+    printf("ERROR: %s\n%s\n", string, strerror(errno));
+    fflush(stdout);
+    exit(1);
+}
+
+void* thread_map_fun(void* vargp);
+
 #define map(size,type1,type2,inarr,outarr, fn) (map_fun(size, sizeof(type1), sizeof(type2),(void*)inarr,(void*) outarr, (gen_fnptr*)fn))
 void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  void* outputarr, gen_fnptr* mapfn)
 {
 
-    // Optimize acc in registers
+    // Optimize acc in registers -- we can explicitly do this, do we want to?
     int tosizeacc=0;
     int fromsizeacc=0;
 
     int i;
-    for (i=0; i < arrlen; i++)
+    int rc;
+
+    int offset = arrlen / NUMTHREADS;
+    /* lastOffset compensates for a remainder of jobs, if the jobs
+       aren't divided cleanly */
+
+    int lastOffset = arrlen - (offset * (NUMTHREADS - 1));
+    // Dispatch worker threads
+    pthread_t threads[NUMTHREADS];
+    ts* threadStuff;
+
+    for (i=0; i < NUMTHREADS - 1; i++)
+    {
+        threadStuff = malloc(sizeof(ts));
+        if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
+        threadStuff->fromsize = fromsize;
+        threadStuff->tosize = tosize;
+        threadStuff->inputarr = inputarr;
+        threadStuff->outputarr = outputarr;
+        threadStuff->mapfn = mapfn;
+        threadStuff->threadLen = offset;
+        threadStuff->startingOffsetIndex = offset * i;
+
+        rc = pthread_create(&threads[i],NULL, thread_map_fun, (void *)threadStuff);
+        if (rc)
+        {
+            errno = rc;
+            errorReportNum("couldn't create a thread in Map");
+        }
+
+    }
+
+    threadStuff = malloc(sizeof(ts));
+    if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
+    threadStuff->fromsize = fromsize;
+    threadStuff->tosize = tosize;
+    threadStuff->inputarr = inputarr;
+    threadStuff->outputarr = outputarr;
+    threadStuff->mapfn = mapfn;
+    threadStuff->threadLen = lastOffset;
+    threadStuff->startingOffsetIndex = offset * i;
+
+    rc = pthread_create(&threads[i], NULL, thread_map_fun, (void *)threadStuff);
+    if (rc)
+    {
+        errno = rc;
+        errorReportNum("couldn't create a thread in Map");
+    }
+
+    // Reap worker threads
+    for (i=0; i < NUMTHREADS; i++)
+    {
+        pthread_join(threads[i], (void**)&rc); // rc holds the return code for error checking later
+    }
+
+}
+
+void* thread_map_fun(void* vargp)
+{
+    ts* threadStuff = (ts *)vargp;
+    int threadLen = threadStuff->threadLen;
+    int fromsize = threadStuff->fromsize;
+    int tosize = threadStuff->tosize;
+    int fromsizeacc = threadStuff->startingOffsetIndex * fromsize;
+    int tosizeacc = threadStuff->startingOffsetIndex * tosize;
+
+    void* inputarr = threadStuff->inputarr;
+    void* outputarr = threadStuff->outputarr;
+    gen_fnptr* mapfn = threadStuff->mapfn;
+
+    int i;
+    for (i = 0; i < threadLen; i++)
     {
 
-        // THIS SEGMENT SHOULD BE THREADED
-
-        // Get the pointer to the output and copy it over 
+        // Get the pointer to the output and copy it over
         // to new array
         void* retnptr = mapfn((char*)inputarr + fromsizeacc);
         memcpy((char*)outputarr + tosizeacc, retnptr, tosize);
 
-        // We ask the user to give us allocated space that we own 
+        // We ask the user to give us allocated space that we own
         free(retnptr);
-        
+
         // Update accumulator sizes (For optimization)
         fromsizeacc += fromsize;
         tosizeacc += tosize;
+
     }
+
+    free(threadStuff);
+    return NULL;
 }
 
 
@@ -66,7 +172,7 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
 
         // We give the pointers to the location and let the user populate them
         mapfn((char*)inputarr + fromsizeacc, (char*)outputarr + tosizeacc);
-        
+
         // Update accumulator sizes (For optimization)
         fromsizeacc += fromsize;
         tosizeacc += tosize;

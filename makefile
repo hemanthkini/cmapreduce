@@ -1,2 +1,2 @@
 all:
-	gcc -o hof hof.c
+	gcc -o hof hof.c -pthread
