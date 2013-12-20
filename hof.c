@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <error.h>
 #include <errno.h>
 
 
@@ -9,7 +8,7 @@
 typedef void* gen_fnptr(void*);
 typedef void fast_fnptr(void*,void*);
 
-#define NUMTHREADS 3
+#define NUMTHREADS 6
 
 typedef struct threadStruct {
     size_t threadLen;
@@ -74,7 +73,6 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
     // Dispatch worker threads
     pthread_t threads[NUMTHREADS];
     ts* threadStuff;
-
     for (i=0; i < NUMTHREADS - 1; i++)
     {
         threadStuff = malloc(sizeof(ts));
@@ -93,7 +91,6 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
             errno = rc;
             errorReportNum("couldn't create a thread in Map");
         }
-
     }
 
     threadStuff = malloc(sizeof(ts));
@@ -112,11 +109,10 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
         errno = rc;
         errorReportNum("couldn't create a thread in Map");
     }
-
     // Reap worker threads
     for (i=0; i < NUMTHREADS; i++)
     {
-        pthread_join(threads[i], (void**)&rc); // rc holds the return code for error checking later
+        pthread_join(threads[i], NULL); // rc holds the return code for error checking later
     }
 
 }
@@ -142,7 +138,6 @@ void* thread_map_fun(void* vargp)
         // to new array
         void* retnptr = mapfn((char*)inputarr + fromsizeacc);
         memcpy((char*)outputarr + tosizeacc, retnptr, tosize);
-
         // We ask the user to give us allocated space that we own
         free(retnptr);
 
@@ -218,7 +213,7 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
     // Reap worker threads
     for (i=0; i < NUMTHREADS; i++)
     {
-        pthread_join(threads[i], (void**)&rc); // rc holds the return code for error checking later
+        pthread_join(threads[i], NULL); // rc holds the return code for error checking later
     }
 
 }
