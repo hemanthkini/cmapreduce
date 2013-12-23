@@ -11,14 +11,19 @@ typedef void fast_fnptr(void*,void*);
 
 #define NUMTHREADS 6
 
-typedef struct threadStruct {
-    size_t threadLen;
-    size_t startingOffsetIndex;
+
+typedef struct map_shared_info {
     size_t fromsize;
     size_t tosize;
     void* inputarr;
     void* outputarr;
     void* mapfn;
+} msi;
+
+typedef struct map_threadStruct {
+    size_t threadLen;
+    size_t startingOffsetIndex;
+    msi *mapinfo;
 } ts;
 
 /* Definition of map
@@ -74,17 +79,22 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
     // Dispatch worker threads
     pthread_t threads[NUMTHREADS];
     ts* threadStuff;
+    msi mapinfo;
+
+    // initialize shared map info
+    mapinfo.fromsize = fromsize;
+    mapinfo.tosize = tosize;
+    mapinfo.inputarr = inputarr;
+    mapinfo.outputarr = outputarr;
+    mapinfo.mapfn = mapfn;
+
     for (i=0; i < NUMTHREADS - 1; i++)
     {
         threadStuff = malloc(sizeof(ts));
         if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
-        threadStuff->fromsize = fromsize;
-        threadStuff->tosize = tosize;
-        threadStuff->inputarr = inputarr;
-        threadStuff->outputarr = outputarr;
-        threadStuff->mapfn = (void*)mapfn;
         threadStuff->threadLen = offset;
         threadStuff->startingOffsetIndex = offset * i;
+        threadStuff->mapinfo = &mapinfo;
 
         rc = pthread_create(&threads[i],NULL, thread_map_fun, (void *)threadStuff);
         if (rc)
@@ -96,13 +106,9 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
 
     threadStuff = malloc(sizeof(ts));
     if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
-    threadStuff->fromsize = fromsize;
-    threadStuff->tosize = tosize;
-    threadStuff->inputarr = inputarr;
-    threadStuff->outputarr = outputarr;
-    threadStuff->mapfn = (void*)mapfn;
     threadStuff->threadLen = lastOffset;
     threadStuff->startingOffsetIndex = offset * i;
+    threadStuff->mapinfo = &mapinfo;
 
     rc = pthread_create(&threads[i], NULL, thread_map_fun, (void *)threadStuff);
     if (rc)
@@ -122,14 +128,16 @@ void* thread_map_fun(void* vargp)
 {
     ts* threadStuff = (ts *)vargp;
     int threadLen = threadStuff->threadLen;
-    int fromsize = threadStuff->fromsize;
-    int tosize = threadStuff->tosize;
+    msi *mapinfo = threadStuff->mapinfo;
+
+    int fromsize = mapinfo->fromsize;
+    int tosize = mapinfo->tosize;
+    void* inputarr = mapinfo->inputarr;
+    void* outputarr = mapinfo->outputarr;
+    gen_fnptr* mapfn = (gen_fnptr*)mapinfo->mapfn;
+
     int fromsizeacc = threadStuff->startingOffsetIndex * fromsize;
     int tosizeacc = threadStuff->startingOffsetIndex * tosize;
-
-    void* inputarr = threadStuff->inputarr;
-    void* outputarr = threadStuff->outputarr;
-    gen_fnptr* mapfn = (gen_fnptr*)threadStuff->mapfn;
 
     int i;
     for (i = 0; i < threadLen; i++)
@@ -172,18 +180,23 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
     // Dispatch worker threads
     pthread_t threads[NUMTHREADS];
     ts* threadStuff;
+    msi mapinfo;
+
+    // initialize shared map info
+    mapinfo.fromsize = fromsize;
+    mapinfo.tosize = tosize;
+    mapinfo.inputarr = inputarr;
+    mapinfo.outputarr = outputarr;
+    mapinfo.mapfn = mapfn;
+
 
     for (i=0; i < NUMTHREADS - 1; i++)
     {
         threadStuff = malloc(sizeof(ts));
         if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
-        threadStuff->fromsize = fromsize;
-        threadStuff->tosize = tosize;
-        threadStuff->inputarr = inputarr;
-        threadStuff->outputarr = outputarr;
-        threadStuff->mapfn = (void*) mapfn;
         threadStuff->threadLen = offset;
         threadStuff->startingOffsetIndex = offset * i;
+        threadStuff->mapinfo = &mapinfo;
 
         rc = pthread_create(&threads[i],NULL, thread_map_fast_fun, (void *)threadStuff);
         if (rc)
@@ -196,13 +209,9 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
 
     threadStuff = malloc(sizeof(ts));
     if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
-    threadStuff->fromsize = fromsize;
-    threadStuff->tosize = tosize;
-    threadStuff->inputarr = inputarr;
-    threadStuff->outputarr = outputarr;
-    threadStuff->mapfn = (void*) mapfn;
     threadStuff->threadLen = lastOffset;
     threadStuff->startingOffsetIndex = offset * i;
+    threadStuff->mapinfo = &mapinfo;
 
     rc = pthread_create(&threads[i], NULL, thread_map_fast_fun, (void *)threadStuff);
     if (rc)
@@ -223,14 +232,14 @@ void* thread_map_fast_fun(void* vargp)
 {
     ts* threadStuff = (ts *)vargp;
     int threadLen = threadStuff->threadLen;
-    int fromsize = threadStuff->fromsize;
-    int tosize = threadStuff->tosize;
+    int fromsize = threadStuff->mapinfo->fromsize;
+    int tosize = threadStuff->mapinfo->tosize;
     int fromsizeacc = threadStuff->startingOffsetIndex * fromsize;
     int tosizeacc = threadStuff->startingOffsetIndex * tosize;
 
-    void* inputarr = threadStuff->inputarr;
-    void* outputarr = threadStuff->outputarr;
-    fast_fnptr* mapfn = (fast_fnptr*)threadStuff->mapfn;
+    void* inputarr = threadStuff->mapinfo->inputarr;
+    void* outputarr = threadStuff->mapinfo->outputarr;
+    fast_fnptr* mapfn = (fast_fnptr*)threadStuff->mapinfo->mapfn;
 
     int i;
     for (i = 0; i < threadLen; i++)
