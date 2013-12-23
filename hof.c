@@ -261,8 +261,37 @@ void* thread_map_fast_fun(void* vargp)
 
 
 
+typedef void* reducefun(void*,void*);
 
+#define reduce(n,type, inarr, fn) reduce_fun(n,sizeof(type),inarr,(reducefun*)fn);
+void* reduce_fun(size_t arrlen, size_t elesize, void* inputarr, reducefun* reducefn)
+{
+    void* result;
 
+    if (arrlen<=1)
+    {
+        result = malloc(elesize);
+        memcpy(result, inputarr, elesize);
+        return result;
+    }
+
+    size_t mid = arrlen/2; // or div by threadnum
+    
+    size_t size1 = mid;
+    size_t size2 = arrlen-mid;
+    void* inarr1 = inputarr;
+    void* inarr2 = (char*) inputarr + size1*elesize;
+
+    void* result1 = reduce_fun(size1, elesize, inarr1, reducefn);
+    void* result2 = reduce_fun(size2, elesize, inarr2, reducefn);
+
+    result = reducefn(result1,result2);
+
+    free(result1);
+    free(result2);
+
+    return result;
+}
 
 
 /**
@@ -309,6 +338,18 @@ void evaltup_fast(int* a, struct tup* b)
     b->orig = num;
     b->origtimes2 = num * 2;
 }
+
+
+// reduce 
+
+int* intadd(int* a, int* b)
+{
+    int* result = malloc(sizeof(int));
+    *result = *a + *b;
+    return result;
+}
+
+
 
 // Main function for testing
 int main(int argc, char **argv)
@@ -389,8 +430,11 @@ int main(int argc, char **argv)
     printf("END\n\n");
 
 
-
-
-
+    
+    // Test 5
+    // Simple reduce
+    printf("Test 5: Reduce addition 0 - 9\n");
+    int* intresult = reduce(10,int,intarr,(reducefun*) &intadd);
+    printf("%d\n", *intresult);
     return 0;
 }
