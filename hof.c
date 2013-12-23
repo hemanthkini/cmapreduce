@@ -261,6 +261,31 @@ void* thread_map_fast_fun(void* vargp)
 
 
 
+typedef void* tab_fnptr(int*);
+
+#define tabulate(size,type,fn) (tabulate_fun(size, sizeof(type), (tab_fnptr*)fn))
+void* tabulate_fun(size_t arrlen, size_t size, tab_fnptr* tabfn)
+{
+
+    // Create an array of ints - This can be threaded!
+    int *inputarr = malloc(sizeof(int) * arrlen);
+    int i;
+    for (i=0; i < arrlen; i++)
+    {
+        inputarr[i] = i;
+    }
+
+    // Allocate memory for tabulated array and map the function on it
+    void* outputarr = malloc(sizeof(size) * arrlen);
+    map_fun(arrlen, sizeof(int), size, inputarr, outputarr, (gen_fnptr*)tabfn);
+
+    return outputarr;
+}
+
+
+
+
+
 typedef void* reducefun(void*,void*);
 
 #define reduce(n,type, inarr, fn) reduce_fun(n,sizeof(type),inarr,(reducefun*)fn);
@@ -349,7 +374,14 @@ int* intadd(int* a, int* b)
     return result;
 }
 
+// tabulate
 
+double* dblx5fn (int* a)
+{
+    double* result = malloc(sizeof(double));
+    *result = (double)(*a *5);
+    return result;
+}
 
 // Main function for testing
 int main(int argc, char **argv)
@@ -436,5 +468,17 @@ int main(int argc, char **argv)
     printf("Test 5: Reduce addition 0 - 9\n");
     int* intresult = reduce(10,int,intarr,(reducefun*) &intadd);
     printf("%d\n", *intresult);
+    printf("END\n\n");
+
+
+
+    // Test 6 Tabulate double *5
+    printf("Test 6: Tabulate Doubles\n");
+    double* dblarr = tabulate(20, double, &dblx5fn);
+    for (i=0; i<20; i++)
+    {
+        printf("%f ", dblarr[i]);
+    }
+    printf("END\n\n");
     return 0;
 }
