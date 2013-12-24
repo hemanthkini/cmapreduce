@@ -12,6 +12,24 @@ typedef void fast_fnptr(void*,void*);
 #define NUMTHREADS 6
 
 
+/* Wrapper Functions for error checking */
+
+
+void errorReportNum(char* string);
+void errorReport(char* string);
+
+int Pthread_create(pthread_t *tid, pthread_attr_t *attr, void *(*routine)(void *), void *arg)
+{
+    int rc = pthread_create(tid, attr, routine, arg);
+
+    if (rc)
+    {
+        errno = rc;
+        errorReportNum("Couldn't create a thread!");
+    }
+    return rc;
+}
+
 typedef struct map_shared_info {
     size_t fromsize;
     size_t tosize;
@@ -24,7 +42,7 @@ typedef struct map_threadStruct {
     size_t threadLen;
     size_t startingOffsetIndex;
     msi *mapinfo;
-} ts;
+} map_ts;
 
 /* Definition of map
  *
@@ -78,7 +96,7 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
     int lastOffset = arrlen - (offset * (NUMTHREADS - 1));
     // Dispatch worker threads
     pthread_t threads[NUMTHREADS];
-    ts* threadStuff;
+    map_ts* threadStuff;
     msi mapinfo;
 
     // initialize shared map info
@@ -90,7 +108,7 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
 
     for (i=0; i < NUMTHREADS - 1; i++)
     {
-        threadStuff = malloc(sizeof(ts));
+        threadStuff = malloc(sizeof(map_ts));
         if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
         threadStuff->threadLen = offset;
         threadStuff->startingOffsetIndex = offset * i;
@@ -104,7 +122,7 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
         }
     }
 
-    threadStuff = malloc(sizeof(ts));
+    threadStuff = malloc(sizeof(map_ts));
     if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
     threadStuff->threadLen = lastOffset;
     threadStuff->startingOffsetIndex = offset * i;
@@ -126,7 +144,7 @@ void map_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,  voi
 
 void* thread_map_fun(void* vargp)
 {
-    ts* threadStuff = (ts *)vargp;
+    map_ts* threadStuff = (map_ts *)vargp;
     int threadLen = threadStuff->threadLen;
     msi *mapinfo = threadStuff->mapinfo;
 
@@ -179,7 +197,7 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
     int lastOffset = arrlen - (offset * (NUMTHREADS - 1));
     // Dispatch worker threads
     pthread_t threads[NUMTHREADS];
-    ts* threadStuff;
+    map_ts* threadStuff;
     msi mapinfo;
 
     // initialize shared map info
@@ -192,7 +210,7 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
 
     for (i=0; i < NUMTHREADS - 1; i++)
     {
-        threadStuff = malloc(sizeof(ts));
+        threadStuff = malloc(sizeof(map_ts));
         if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
         threadStuff->threadLen = offset;
         threadStuff->startingOffsetIndex = offset * i;
@@ -207,7 +225,7 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
 
     }
 
-    threadStuff = malloc(sizeof(ts));
+    threadStuff = malloc(sizeof(map_ts));
     if (threadStuff == NULL) errorReport("couldn't malloc threadStuff in map");
     threadStuff->threadLen = lastOffset;
     threadStuff->startingOffsetIndex = offset * i;
@@ -230,7 +248,7 @@ void map_fast_fun(size_t arrlen, size_t fromsize, size_t tosize, void* inputarr,
 
 void* thread_map_fast_fun(void* vargp)
 {
-    ts* threadStuff = (ts *)vargp;
+    map_ts* threadStuff = (map_ts *)vargp;
     int threadLen = threadStuff->threadLen;
     int fromsize = threadStuff->mapinfo->fromsize;
     int tosize = threadStuff->mapinfo->tosize;
@@ -267,7 +285,7 @@ typedef void* tab_fnptr(int*);
 void* tabulate_fun(size_t arrlen, size_t size, tab_fnptr* tabfn)
 {
 
-    // Create an array of ints - This can be threaded!
+    // Create an array of inmap_ts - This can be threaded!
     int *inputarr = malloc(sizeof(int) * arrlen);
     int i;
     for (i=0; i < arrlen; i++)
@@ -283,16 +301,71 @@ void* tabulate_fun(size_t arrlen, size_t size, tab_fnptr* tabfn)
 }
 
 
-
-
+/* Reduce Data structures */
 
 typedef void* reducefun(void*,void*);
 
-#define reduce(n,type, inarr, fn) reduce_fun(n,sizeof(type),inarr,(reducefun*)fn);
-void* reduce_fun(size_t arrlen, size_t elesize, void* inputarr, reducefun* reducefn)
+typedef struct reduce_shared_info
 {
-    void* result;
+    size_t elesize;
+    reducefun* reducefn;
+} reduceinfo;
 
+typedef struct reduce_threadstruct
+{
+    size_t arrlen;
+    void *inputarr; 
+    reduceinfo *rdinfo;
+} reduce_ts;
+
+
+/* Method declaration */
+
+#define reduce(n,type, inarr, fn) reduce_fun_wrapper(n,sizeof(type),inarr,(reducefun*)fn);
+void* reduce_fun_wrapper(size_t arrlen, size_t elesize, void* inputarr, reducefun* reducefn);
+void* reduce_fun(size_t arrlen, void* inputarr, reduceinfo* rdinfo);
+
+
+
+void* reduce_fun_wrapper(size_t arrlen, size_t elesize, void* inputarr, reducefun* reducefn)
+{
+    reduceinfo rdinfo;
+
+    rdinfo.elesize = elesize;
+    rdinfo.reducefn = reducefn;
+
+    return reduce_fun(arrlen, inputarr, &rdinfo);
+}
+
+
+reduce_ts* get_reduce_ts(size_t arrlen, void* inputarr, reduceinfo* rdinfo)
+{
+    reduce_ts *rts = malloc(sizeof(reduce_ts));
+    rts->arrlen = arrlen;
+    rts->inputarr = inputarr;
+    rts->rdinfo = rdinfo;
+
+    return rts;
+}
+
+void* thread_reduce_fun(void* tinfo)
+{
+    reduce_ts *rts = tinfo;
+    size_t arrlen = rts->arrlen;
+    void* inputarr = rts->inputarr;
+    reduceinfo* rdinfo = rts->rdinfo;
+    return reduce_fun(arrlen,inputarr,rdinfo);
+}
+
+void* reduce_fun(size_t arrlen, void* inputarr, reduceinfo* rdinfo)
+{
+
+    // Initialize reduce info variables
+    void* result;
+    size_t elesize = rdinfo->elesize;
+    reducefun* reducefn = rdinfo->reducefn;
+
+    // If singleton case
     if (arrlen<=1)
     {
         result = malloc(elesize);
@@ -300,16 +373,34 @@ void* reduce_fun(size_t arrlen, size_t elesize, void* inputarr, reducefun* reduc
         return result;
     }
 
+    // Calculate split
     size_t mid = arrlen/2; // or div by threadnum
-    
+   
     size_t size1 = mid;
     size_t size2 = arrlen-mid;
     void* inarr1 = inputarr;
     void* inarr2 = (char*) inputarr + size1*elesize;
 
-    void* result1 = reduce_fun(size1, elesize, inarr1, reducefn);
-    void* result2 = reduce_fun(size2, elesize, inarr2, reducefn);
 
+    // Reduce subtrees in threads
+    void* result1;    void* result2;
+
+    // Non-threaded version
+    //result1 = reduce_fun(size1, inarr1, rdinfo);
+    //result2 = reduce_fun(size2, inarr2, rdinfo);
+
+    //Prepare and use threads 
+    reduce_ts* rts1 = get_reduce_ts(size1, inarr1, rdinfo);
+    reduce_ts* rts2 = get_reduce_ts(size2, inarr2, rdinfo);
+
+    pthread_t pid[2];
+    Pthread_create(&pid[0], NULL, thread_reduce_fun, (void*) rts1);
+    Pthread_create(&pid[1], NULL, thread_reduce_fun, (void*) rts2);
+
+    pthread_join(pid[0], &result1);
+    pthread_join(pid[1], &result2);
+
+    // Reduce results 
     result = reducefn(result1,result2);
 
     free(result1);
@@ -467,6 +558,19 @@ int main(int argc, char **argv)
     // Simple reduce
     printf("Test 5: Reduce addition 0 - 9\n");
     int* intresult = reduce(10,int,intarr,(reducefun*) &intadd);
+    printf("%d\n", *intresult);
+    printf("END\n\n");
+
+    // Test 5a
+    // Simple reduce big
+    printf("Test 5: Reduce addition 0 - 9\n");
+    int size = 1500;
+    int intarrbig[size];
+    for (i=0; i<size; i++)
+    {
+        intarrbig[i]=i;
+    }
+    intresult = reduce(size,int,intarrbig,(reducefun*) &intadd);
     printf("%d\n", *intresult);
     printf("END\n\n");
 
