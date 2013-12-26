@@ -9,7 +9,7 @@
 typedef void* gen_fnptr(void*);
 typedef void fast_fnptr(void*,void*);
 
-#define NUMTHREADS 6
+#define NUMTHREADS 3
 
 
 /* Wrapper Functions for error checking */
@@ -309,12 +309,14 @@ typedef struct reduce_shared_info
 {
     size_t elesize;
     reducefun* reducefn;
+    void* baseCase;
+    size_t reducedSize;
 } reduceinfo;
 
 typedef struct reduce_threadstruct
 {
     size_t arrlen;
-    void *inputarr; 
+    void *inputarr;
     reduceinfo *rdinfo;
 } reduce_ts;
 
@@ -324,7 +326,6 @@ typedef struct reduce_threadstruct
 #define reduce(n,type, inarr, fn) reduce_fun_wrapper(n,sizeof(type),inarr,(reducefun*)fn);
 void* reduce_fun_wrapper(size_t arrlen, size_t elesize, void* inputarr, reducefun* reducefn);
 void* reduce_fun(size_t arrlen, void* inputarr, reduceinfo* rdinfo);
-
 
 
 void* reduce_fun_wrapper(size_t arrlen, size_t elesize, void* inputarr, reducefun* reducefn)
@@ -352,30 +353,50 @@ void* thread_reduce_fun(void* tinfo)
 {
     reduce_ts *rts = tinfo;
     size_t arrlen = rts->arrlen;
-    void* inputarr = rts->inputarr;
+    void** inputarr = (void**)rts->inputarr;
     reduceinfo* rdinfo = rts->rdinfo;
-    return reduce_fun(arrlen,inputarr,rdinfo);
+    size_t elesize = rdinfo->elesize;
+    reducefun* reducefn = rdinfo->reducefn;
+    void** finalResult = malloc(elesize);
+    void** result = malloc(elesize);
+    int i = 0;
+    memcpy(result, inputarr, elesize);
+    for (i = 0; i < arrlen - 1; i++)
+    {
+        result = reducefn(result, (void*)(((char*)inputarr) + elesize*(i+1)));
+    }
+    memcpy(finalResult, result, rdinfo->elesize);
+    return finalResult;
+    /*return reduce_fun(arrlen,inputarr,rdinfo); */
+
 }
 
 void* reduce_fun(size_t arrlen, void* inputarr, reduceinfo* rdinfo)
 {
 
     // Initialize reduce info variables
-    void* result;
+    void** result = calloc(NUMTHREADS, sizeof(void*));
+    void* finalResult;
     size_t elesize = rdinfo->elesize;
     reducefun* reducefn = rdinfo->reducefn;
 
     // If singleton case
     if (arrlen<=1)
     {
-        result = malloc(elesize);
-        memcpy(result, inputarr, elesize);
-        return result;
+        finalResult = malloc(elesize);
+        memcpy(finalResult, inputarr, elesize);
+        free (result);
+        return finalResult;
     }
+    printf("passed singleton check\n");
+    int offset = arrlen / NUMTHREADS;
+    /* lastOffset compensates for a remainder of jobs, if the jobs
+       aren't divided cleanly */
+    int lastOffset = arrlen - (offset * (NUMTHREADS - 1));
 
     // Calculate split
     size_t mid = arrlen/2; // or div by threadnum
-   
+
     size_t size1 = mid;
     size_t size2 = arrlen-mid;
     void* inarr1 = inputarr;
@@ -383,30 +404,48 @@ void* reduce_fun(size_t arrlen, void* inputarr, reduceinfo* rdinfo)
 
 
     // Reduce subtrees in threads
-    void* result1;    void* result2;
+//    void* result1;    void* result2;
 
     // Non-threaded version
     //result1 = reduce_fun(size1, inarr1, rdinfo);
     //result2 = reduce_fun(size2, inarr2, rdinfo);
+    reduce_ts* rts[NUMTHREADS];
+    //Prepare and use threads
+    int i;
+    pthread_t pid[NUMTHREADS];
+    printf("about to dispatch threads in reduce\n");
+    for (i = 0; i < NUMTHREADS - 1; i++)
+    {
+        rts[i] = get_reduce_ts(offset, ((char *)inputarr + offset*i * elesize), rdinfo);
+        Pthread_create(&pid[i], NULL, thread_reduce_fun, (void*) rts[i]);
+        printf("dispatched thread %i!\n", i);
+    }
+    rts[i] = get_reduce_ts(lastOffset, ((char *)inputarr + offset*i*elesize), rdinfo);
+    Pthread_create(&pid[i], NULL, thread_reduce_fun, (void*) rts[i]);
+    printf("dispatched thread %i!\n", i);
 
-    //Prepare and use threads 
-    reduce_ts* rts1 = get_reduce_ts(size1, inarr1, rdinfo);
-    reduce_ts* rts2 = get_reduce_ts(size2, inarr2, rdinfo);
 
-    pthread_t pid[2];
-    Pthread_create(&pid[0], NULL, thread_reduce_fun, (void*) rts1);
-    Pthread_create(&pid[1], NULL, thread_reduce_fun, (void*) rts2);
+/*    reduce_ts* rts1 = get_reduce_ts(size1, inarr1, rdinfo);
+      reduce_ts* rts2 = get_reduce_ts(size2, inarr2, rdinfo); */
+    printf("about to grab results\n");
+    for (i = 0; i < NUMTHREADS; i++)
+    {
+        pthread_join(pid[i], &(result[i]));
+        printf("grabbed thread %i\n", i);
+    }
 
-    pthread_join(pid[0], &result1);
-    pthread_join(pid[1], &result2);
+    // Reduce results
 
-    // Reduce results 
-    result = reducefn(result1,result2);
+    finalResult = (result[0]);
+    for (i = 0; i < NUMTHREADS-1; i++)
+    {
+        finalResult = reducefn(finalResult, result[i+1]);
+    }
 
-    free(result1);
-    free(result2);
+/*    free(result1);
+      free(result2); */
 
-    return result;
+    return finalResult;
 }
 
 
@@ -456,7 +495,7 @@ void evaltup_fast(int* a, struct tup* b)
 }
 
 
-// reduce 
+// reduce
 
 int* intadd(int* a, int* b)
 {
@@ -553,7 +592,7 @@ int main(int argc, char **argv)
     printf("END\n\n");
 
 
-    
+
     // Test 5
     // Simple reduce
     printf("Test 5: Reduce addition 0 - 9\n");
@@ -561,9 +600,10 @@ int main(int argc, char **argv)
     printf("%d\n", *intresult);
     printf("END\n\n");
 
+
     // Test 5a
     // Simple reduce big
-    printf("Test 5: Reduce addition 0 - 9\n");
+    printf("Test 5: Reduce addition 0 - 1499\n");
     int size = 1500;
     int intarrbig[size];
     for (i=0; i<size; i++)
