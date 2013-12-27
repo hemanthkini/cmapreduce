@@ -367,10 +367,8 @@ void* thread_reduce_fun(void* tinfo)
         result = reducefn(result, (void*)(((char*)inputarr) + elesize*(i+1)));
         free(tmp);
     }
-    printf("partial result: %d\n", *(int *)result);
     memcpy(finalResult, result, rdinfo->elesize);
     return finalResult;
-    /*return reduce_fun(arrlen,inputarr,rdinfo); */
 
 }
 
@@ -391,7 +389,6 @@ void* reduce_fun(size_t arrlen, void* inputarr, reduceinfo* rdinfo)
         free(result);
         return finalResult;
     }
-    printf("passed singleton check\n");
     int offset = arrlen / NUMTHREADS;
     /* lastOffset compensates for a remainder of jobs, if the jobs
        aren't divided cleanly */
@@ -407,16 +404,13 @@ void* reduce_fun(size_t arrlen, void* inputarr, reduceinfo* rdinfo)
     //Prepare and use threads
     int i;
     pthread_t pid[NUMTHREADS];
-    printf("about to dispatch threads in reduce\n");
     for (i = 0; i < NUMTHREADS - 1; i++)
     {
         rts[i] = get_reduce_ts(offset, ((char *)inputarr + offset*i * elesize), rdinfo);
         Pthread_create(&pid[i], NULL, thread_reduce_fun, (void*) rts[i]);
-        printf("dispatched thread %i!\n", i);
     }
     rts[i] = get_reduce_ts(lastOffset, ((char *)inputarr + offset*i*elesize), rdinfo);
     Pthread_create(&pid[i], NULL, thread_reduce_fun, (void*) rts[i]);
-    printf("dispatched thread %i!\n", i);
 
 
     for (i = 0; i < NUMTHREADS; i++)
@@ -599,7 +593,6 @@ int main(int argc, char **argv)
     {
         intarrbig[i]=i;
     }
-    exit(0);
     intresult = reduce(size,int,intarrbig,(reducefun*) &intadd);
     printf("%d\n", *intresult);
     printf("END\n\n");
